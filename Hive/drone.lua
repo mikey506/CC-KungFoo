@@ -1,4 +1,6 @@
 local computerID = os.getComputerID()
+local movementSpeed = 0.5
+local serverID = nil
  
 -- Prompt the user to set the movement speed
 while true do
@@ -13,7 +15,6 @@ while true do
 end
  
 -- Prompt the user to set the server ID
-local serverID
 while true do
     write("Enter the server ID: ")
     local input = tonumber(read())
@@ -28,7 +29,8 @@ end
 -- Store whether the turtle is authenticated
 local authenticated = false
  
-local function cycleAttack(serverID)
+local function cycleAttack()
+    local x, y, z = gps.locate()
     local attackedFront = false
     local attackedAbove = false
  
@@ -67,32 +69,27 @@ local function cycleAttack(serverID)
     end
  
     if attackInfo ~= "" then
-        rednet.send(serverID, attackInfo, "TurtleEvent")
+        rednet.send(serverID, "ATTACK: " .. attackInfo .. " - " .. x .. "/" .. y .. "/" .. z, "TurtleEvent")
     end
  
     sleep(1)
 end
  
--- Function to set the movement speed
-local function setMovementSpeed(speed)
-    movementSpeed = speed
-    print("Movement speed set to: " .. movementSpeed)
-end
- 
--- Function to move forward, left, or right with collision detection and avoidance
-local function moveRandomly(serverID)
+local function moveRandomly()
     local direction = math.random(1, 4)  -- Randomly choose a direction (1: left, 2: right, 3-4: forward)
     local detectSuccess, blockData = turtle.inspectDown()
+ 
+    local x, y, z = gps.locate()
  
     if direction >= 3 and direction <= 4 then
         if detectSuccess and blockData then
             local blockName = blockData.name
  
             if blockName == "minecraft:sand" or blockName == "minecraft:air" or blockName == "minecraft:water" then
-                rednet.send(serverID, "DETECTED: " .. blockName, "TurtleEvent")
+                rednet.send(serverID, "DETECTED: " .. blockName .. " - " .. x .. "/" .. y .. "/" .. z, "TurtleEvent")
                 print("Detected " .. blockName)
                 local whichway = math.random(1, 2)
-                print("Moving back and turning right on restricted area")
+                print("Leaving restricted area")
                 turtle.back(2)
                 if whichway == 1 then
                     turtle.turnRight()
@@ -106,22 +103,27 @@ local function moveRandomly(serverID)
                     print("Turtle blocked while moving forward")
                 else
                     print("Turtle moving forward")
-                    cycleAttack(serverID)
+                    cycleAttack()
                     return
                 end
             end
         else
-            -- Handle other cases when no block is detected
-            -- ...
+            print("No Block Detected Under Turtle, moving forward.")
+            turtle.forward()
+            return
         end
-    end
- 
-    if direction == 1 then
-        -- Handle direction 1
-        -- ...
+    elseif direction == 1 then
+        if detectSuccess and (blockData.name == "minecraft:sand" or blockData.name == "minecraft:air" or blockData.name == "minecraft:water") then
+            return
+        end
+        turtle.turnRight()
+        print("Turning Right")
     elseif direction == 2 then
-        -- Handle direction 2
-        -- ...
+        if detectSuccess and (blockData.name == "minecraft:sand" or blockData.name == "minecraft:air" or blockData.name == "minecraft:water") then
+            return
+        end
+        turtle.turnLeft()
+        print("Turning Left")
     end
 end
  
@@ -140,7 +142,7 @@ while true do
             print("Authentication failed. Retrying...")
         end
     else
-        moveRandomly(serverID)
+        moveRandomly()
         sleep(movementSpeed)  -- Pause between movements
     end
 end
