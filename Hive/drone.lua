@@ -1,28 +1,58 @@
 local computerID = os.getComputerID()
 local movementSpeed = 0.5
 local serverID = nil
+local authenticated = false
  
--- Prompt the user to set the movement speed
-while true do
-    write("Enter the movement speed (0.5-2): ")
-    local input = tonumber(read())
-    if input and input >= 0.5 and input <= 2 then
-        movementSpeed = input
-        break
-    else
-        print("Invalid input. Please enter a value between 0.5 and 2.")
+-- Attempt to load settings from config.json
+local config = {}
+ 
+if fs.exists("config.json") then
+    local file = fs.open("config.json", "r")
+    local configStr = file.readAll()
+    file.close()
+    config = textutils.unserialize(configStr)
+end
+ 
+-- Function to save settings to config.json
+local function saveConfig()
+    local file = fs.open("config.json", "w")
+    file.write(textutils.serialize(config))
+    file.close()
+end
+ 
+-- Prompt the user to set the movement speed if not in the config
+if config.movementSpeed then
+    movementSpeed = config.movementSpeed
+else
+    while true do
+        write("Enter the movement speed (0.5-2): ")
+        local input = tonumber(read())
+        if input and input >= 0.5 and input <= 2 then
+            movementSpeed = input
+            config.movementSpeed = movementSpeed
+            saveConfig()
+            break
+        else
+            print("Invalid input. Please enter a value between 0.5 and 2.")
+        end
     end
 end
  
--- Prompt the user to set the server ID
-while true do
-    write("Enter the server ID: ")
-    local input = tonumber(read())
-    if input then
-        serverID = input
-        break
-    else
-        print("Invalid input. Please enter a numeric server ID.")
+-- Prompt the user to set the server ID if not in the config
+if config.serverID then
+    serverID = config.serverID
+else
+    while true do
+        write("Enter the server ID: ")
+        local input = tonumber(read())
+        if input then
+            serverID = input
+            config.serverID = serverID
+            saveConfig()
+            break
+        else
+            print("Invalid input. Please enter a numeric server ID.")
+        end
     end
 end
  
