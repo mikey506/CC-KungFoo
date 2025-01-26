@@ -1,0 +1,415 @@
+-- A more robust mining turtle script for CC: Tweaked that:
+--  1) Auto-detects "ground" by moving downward until it finds a block below.
+--  2) Calibrates its local Y=64 at that point.
+--  3) Moves to the user-defined minY..maxY range for branch mining.
+--  4) Does vein exploration, inventory management, etc., similar to before.
+ 
+-- ==================================================
+-- ================ CONFIGURATION ===================
+-- ==================================================
+ 
+local mineWidth = 8     -- How many "rows" to dig out at each Y-level
+local mineLength = 32   -- How long each row is
+local minY = 12         -- Starting minimum Y-level (in local coords)
+local maxY = 16         -- Ending maximum Y-level
+ 
+local homeX, homeY, homeZ = 0, 0, 0  -- Home coords in local space
+local minFuelLevel = 100             -- Refuel when below this
+ 
+-- List of block IDs considered "valuable"
+local valuableBlocks = {
+  "minecraft:iron_ore",
+  "minecraft:gold_ore",
+  "minecraft:diamond_ore",
+  "minecraft:lapis_ore",
+  "minecraft:redstone_ore",
+  "minecraft:emerald_ore",
+  "minecraft:copper_ore",
+  "minecraft:deepslate_iron_ore",
+  "minecraft:deepslate_gold_ore",
+  "minecraft:deepslate_diamond_ore",
+  "minecraft:deepslate_lapis_ore",
+  "minecraft:deepslate_redstone_ore",
+  "minecraft:deepslate_emerald_ore",
+  "minecraft:deepslate_copper_ore"
+}
+ 
+-- ==================================================
+-- ============== UTILITY VARIABLES =================
+-- ==================================================
+ 
+-- Track turtle’s local position/orientation
+-- We'll calibrate curY to 64 after detecting the ground.
+local curX, curY, curZ = 0, 64, 0
+-- orientation: 0=+x, 1=+z, 2=-x, 3=-z
+local orientation = 0
+ 
+-- For vein exploration: remember visited positions
+local visitedMap = {}  -- visitedMap["x:y:z"] = true
+ 
+-- ==================================================
+-- ============== UTILITY FUNCTIONS ================
+-- ==================================================
+ 
+-------------------------------------------------------
+-- Helper for local coordinate keys
+-------------------------------------------------------
+local function posKey(x, y, z)
+  return tostring(x)..":"..tostring(y)..":"..tostring(z)
+end
+ 
+-------------------------------------------------------
+-- Check if a block name is valuable
+-------------------------------------------------------
+local function isValuableBlock(blockName)
+  if not blockName then return false end
+  for _,v in pairs(valuableBlocks) do
+    if blockName == v then
+      return true
+    end
+  end
+  return false
+end
+ 
+-------------------------------------------------------
+-- Refuel
+-------------------------------------------------------
+local function refuelIfNeeded()
+  if turtle.getFuelLevel() == "unlimited" then return end
+ 
+  if turtle.getFuelLevel() < minFuelLevel then
+    for slot=1,16 do
+      local cnt = turtle.getItemCount(slot)
+      if cnt > 0 then
+        local detail = turtle.getItemDetail(slot)
+        if detail and (detail.name == "minecraft:coal" or detail.name == "minecraft:charcoal") then
+          turtle.select(slot)
+          -- Refuel with 1 piece at a time
+          turtle.refuel(1)
+          if turtle.getFuelLevel() >= minFuelLevel then
+            break
+          end
+        end
+      end
+    end
+  end
+end
+ 
+-------------------------------------------------------
+-- Movement + Position Tracking
+-------------------------------------------------------
+local function forward()
+  refuelIfNeeded()
+  local tries = 0
+  while not turtle.forward() do
+    turtle.dig()
+    sleep(0.2)
+    tries = tries + 1
+    if tries > 10 then
+      print("Blocked and can't move forward.")
+      return false
+    end
+  end
+  if orientation == 0 then
+    curX = curX + 1
+  elseif orientation == 1 then
+    curZ = curZ + 1
+  elseif orientation == 2 then
+    curX = curX - 1
+  else
+    curZ = curZ - 1
+  end
+  return true
+end
+ 
+local function up()
+  refuelIfNeeded()
+  local tries = 0
+  while not turtle.up() do
+    turtle.digUp()
+    sleep(0.2)
+    tries = tries + 1
+    if tries > 10 then
+      print("Blocked and can't move up.")
+      return false
+    end
+  end
+  curY = curY + 1
+  return true
+end
+ 
+local function down()
+  refuelIfNeeded()
+  local tries = 0
+  while not turtle.down() do
+    turtle.digDown()
+    sleep(0.2)
+    tries = tries + 1
+    if tries > 10 then
+      print("Blocked and can't move down.")
+      return false
+    end
+  end
+  curY = curY - 1
+  return true
+end
+ 
+local function turnLeft()
+  turtle.turnLeft()
+  orientation = (orientation - 1) % 4
+end
+ 
+local function turnRight()
+  turtle.turnRight()
+  orientation = (orientation + 1) % 4
+end
+ 
+local function turnAround()
+  turnRight()
+  turnRight()
+end
+ 
+-------------------------------------------------------
+-- Vein Mining (recursive block detection), ignoring air
+-------------------------------------------------------
+local function exploreVein()
+  local keyHere = posKey(curX, curY, curZ)
+  visitedMap[keyHere] = true
+ 
+  local function checkAndExploreForward()
+    local success, data = turtle.inspect()
+    if success and data and data.name ~= "minecraft:air" and isValuableBlock(data.name) then
+      turtle.dig()
+      forward()
+      local newKey = posKey(curX, curY, curZ)
+      if not visitedMap[newKey] then
+        exploreVein()
+      end
+      -- Go back
+      turnAround()
+      forward()
+      turnAround()
+    end
+  end
+ 
+  local function checkAndExploreUp()
+    local success, data = turtle.inspectUp()
+    if success and data and data.name ~= "minecraft:air" and isValuableBlock(data.name) then
+      turtle.digUp()
+      up()
+      local newKey = posKey(curX, curY, curZ)
+      if not visitedMap[newKey] then
+        exploreVein()
+      end
+      down()
+    end
+  end
+ 
+  local function checkAndExploreDown()
+    local success, data = turtle.inspectDown()
+    if success and data and data.name ~= "minecraft:air" and isValuableBlock(data.name) then
+      turtle.digDown()
+      down()
+      local newKey = posKey(curX, curY, curZ)
+      if not visitedMap[newKey] then
+        exploreVein()
+      end
+      up()
+    end
+  end
+ 
+  -- Check forward, left, right, up, down
+  checkAndExploreForward()
+ 
+  turnLeft()
+  checkAndExploreForward()
+  turnRight() -- restore orientation
+ 
+  turnRight()
+  checkAndExploreForward()
+  turnLeft() -- restore orientation
+ 
+  checkAndExploreUp()
+  checkAndExploreDown()
+end
+ 
+-------------------------------------------------------
+-- Cave Descent Check: if air below, go down 1 block
+-------------------------------------------------------
+local function checkBelowAndDescendIfAir()
+  local success, _ = turtle.inspectDown()
+  if not success then
+    -- Means there's air (or fluid) below
+    if down() then
+      exploreVein()
+      up()
+    end
+  end
+end
+ 
+-------------------------------------------------------
+-- Inventory Management
+-------------------------------------------------------
+local function dumpInventory()
+  print("Dumping inventory into chest behind turtle...")
+  turnAround()
+  for slot=1,16 do
+    if turtle.getItemCount(slot) > 0 then
+      turtle.select(slot)
+      turtle.drop()
+    end
+  end
+  turtle.select(1)
+  turnAround()
+end
+ 
+local function ensureInventorySpace()
+  for slot=1,16 do
+    if turtle.getItemCount(slot) == 0 then
+      return true
+    end
+  end
+ 
+  -- No free slot => go home
+  print("Inventory full. Returning home to drop off items...")
+ 
+  -- Return home in a naive straight-line manner
+  -- 1) Vertical alignment
+  while curY < homeY do
+    up()
+  end
+  while curY > homeY do
+    down()
+  end
+  -- 2) X alignment
+  while curX > homeX do
+    while orientation ~= 2 do turnRight() end
+    forward()
+  end
+  while curX < homeX do
+    while orientation ~= 0 do turnRight() end
+    forward()
+  end
+  -- 3) Z alignment
+  while curZ > homeZ do
+    while orientation ~= 3 do turnRight() end
+    forward()
+  end
+  while curZ < homeZ do
+    while orientation ~= 1 do turnRight() end
+    forward()
+  end
+ 
+  dumpInventory()
+  return true
+end
+ 
+-------------------------------------------------------
+-- Ground Calibration
+-- Move down until there's a block beneath the turtle.
+-- Then set turtle's local Y=64 (typical overworld ground).
+-------------------------------------------------------
+local function calibrateGround()
+  print("Calibrating: moving down until we detect a solid block below...")
+  local steps = 0
+  while not turtle.detectDown() do
+    if not down() then
+      -- Stuck or blocked from moving down? Break.
+      break
+    end
+    steps = steps + 1
+    if steps > 256 then
+      -- Safety limit
+      break
+    end
+  end
+ 
+  -- Now we assume we are on 'the ground'
+  -- We'll treat that as local Y=64 for reference
+  curY = 64
+  print("Ground found. Local Y set to 64.")
+end
+ 
+-------------------------------------------------------
+-- MAIN BRANCH MINING
+-------------------------------------------------------
+local function branchMine()
+  -- Remove direct "go to minY" loops from older script
+  -- Instead, let's do them after calibration in main()
+ 
+  for level = minY, maxY do
+    print("Mining Y-level (local) =", level)
+    -- For each Y-level, we do mineWidth rows
+    for row = 1, mineWidth do
+      for length = 1, mineLength do
+        forward()
+        checkBelowAndDescendIfAir()  -- quick cave check
+        exploreVein()               -- check immediate ore in front/up/down
+        ensureInventorySpace()
+      end
+      -- Turn around, go back
+      turnAround()
+      for length = 1, mineLength do
+        forward()
+      end
+      turnAround()
+ 
+      -- Move one column to the side (unless last row)
+      if row < mineWidth then
+        turnRight()
+        forward()
+        turnLeft()
+      end
+    end
+ 
+    -- If we have more levels to do, move up 1
+    if level < maxY then
+      up()
+    end
+ 
+    -- Move back horizontally to the "leftmost" position
+    turnLeft()
+    for r = 1, (mineWidth - 1) do
+      forward()
+    end
+    turnRight()
+  end
+end
+ 
+-------------------------------------------------------
+-- MAIN
+-------------------------------------------------------
+local function main()
+  print("Starting revisedSmartMiner...")
+ 
+  -- 1) Calibrate so the turtle won't think it's at y=0
+  --    and then try to "go up" to minY.
+  calibrateGround()
+ 
+  -- 2) Now move from local Y=64 down to minY (or up to minY) if needed.
+  if curY > minY then
+    while curY > minY do
+      down()
+    end
+  elseif curY < minY then
+    while curY < minY do
+      up()
+    end
+  end
+ 
+  -- 3) Now we can proceed with the branch mine from minY..maxY
+  refuelIfNeeded()
+  visitedMap[posKey(curX, curY, curZ)] = true
+ 
+  branchMine()
+ 
+  -- 4) Return home, dump items
+  print("Mining complete. Returning home...")
+  ensureInventorySpace()
+ 
+  print("All done!")
+end
+ 
+-- Run the program
+main()
+ 
